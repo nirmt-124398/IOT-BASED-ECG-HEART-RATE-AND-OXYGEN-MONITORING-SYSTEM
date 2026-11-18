@@ -1,167 +1,98 @@
-#include <Wire.h> 
-#include "MAX30100_PulseOximeter.h" 
-#include <ESP8266WiFi.h> 
-#include <PubSubClient.h> 
-#include <OneWire.h> 
-#include <DallasTemperature.h> 
+#include <Wire.h>
+#include "MAX30100_PulseOximeter.h"
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
-#define WIFISSID "SOUVIKNANDI" // Put your WifiSSID here 
-#define PASSWORD "12345678" // Put your wifi password here 
-#define TOKEN "BBFF-09E24JrHTnJrJ4sp865Macft6jOfjR" // Put your Ubidots' TOKEN 
-#define MQTT_CLIENT_NAME "myecgsensor" 
-#define VARIABLE_LABEL_1 "myecg" // Assing the variable label 
-#define VARIABLE_LABEL_2 "SPo2" 
-#define VARIABLE_LABEL_4 "heartrate" 
-#define VARIABLE_LABEL_3 "temperature" 
-#define DEVICE_LABEL "remote-patient-health-monitoring" // Assig the device label 
-#define ONE_WIRE_BUS 2 
-#define REPORTING_PERIOD_MS 1000 
-#define SENSOR A0 // Set the A0 as SENSOR 
+#define WIFISSID "YOUR_WIFI_NAME"
+#define PASSWORD "YOUR_WIFI_PASSWORD"
+#define TOKEN "YOUR_UBIDOTS_TOKEN"
+#define MQTT_CLIENT_NAME "myecgsensor"
+#define DEVICE_LABEL "remote-patient-health-monitoring"
+#define ONE_WIRE_BUS 2
+#define REPORTING_PERIOD_MS 1000
+#define SENSOR A0
 
-char mqttBroker[] = "industrial.api.ubidots.com"; 
-char payload[100]; 
-char topic[150]; 
-char str_sensor_1[10]; 
-char str_sensor_2[10]; 
-char str_sensor_3[10]; 
-char str_sensor_4[10]; 
+char mqttBroker[] = "industrial.api.ubidots.com";
+char payload[100];
+char topic[150];
 
-PulseOximeter pox; 
-uint32_t tsLastReport = 0; 
+PulseOximeter pox;
+uint32_t tsLastReport = 0;
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+WiFiClient ubidots;
+PubSubClient client(ubidots);
 
-OneWire oneWire(ONE_WIRE_BUS); 
-DallasTemperature sensors(&oneWire); 
-float temp, tempf=0; 
-float heartrate =73; 
-float SPo2=98; 
+void onBeatDetected() {}
 
-void onBeatDetected() 
-{} 
-
-WiFiClient ubidots; 
-PubSubClient client(ubidots); 
-
-void callback(char* topic, byte* payload, unsigned int length) { 
-  char p[length + 1]; 
-  memcpy(p, payload, length); 
-  p[length] = NULL; 
-  Serial.write(payload, length); 
-} 
-
-void reconnect() { 
-  while (!client.connected()) { 
-    if (client.connect(MQTT_CLIENT_NAME, TOKEN, "")) { 
-    } else { 
-      delay(2000); 
+void reconnect() {
+  while (!client.connected()) {
+    if (!client.connect(MQTT_CLIENT_NAME, TOKEN, "")) {
+      delay(2000);
     }
   }
-} 
+}
 
-/************** 
-* Main Functions 
-**************/ 
-void setup() { 
-  pinMode(D6, OUTPUT); 
-  pinMode(D8, OUTPUT); 
-  pinMode(D7, OUTPUT); 
-  sensors.begin(); 
-  Serial.begin(115200); 
-  WiFi.begin(WIFISSID, PASSWORD); 
-  pinMode(SENSOR, INPUT); 
-  Serial.print("Waiting for WiFi..."); 
-  
-  while (WiFi.status() != WL_CONNECTED) { 
-    delay(500); 
-  } 
-  
-  if(WiFi.status() == WL_CONNECTED) 
-  { 
-    digitalWrite(D7, HIGH); 
-    delay(500); 
-    digitalWrite(D7, LOW); 
-    delay(500); 
-    digitalWrite(D7, HIGH); 
-    delay(500); 
-    digitalWrite(D7, LOW); 
-    delay(500); 
-    digitalWrite(D7, HIGH); 
-    delay(500); 
-    digitalWrite(D7, LOW); 
-    delay(500); 
-    digitalWrite(D7, HIGH); 
-    delay(500); 
-    digitalWrite(D7, LOW); 
-  } 
-  
-  Serial.println("WiFi Connected"); 
-  Serial.println("IP address: "); 
-  Serial.println(WiFi.localIP()); 
-  client.setServer(mqttBroker, 1883); 
-  client.setCallback(callback); 
-} 
+void publishValue(const char* label, float value) {
+  char str[16];
+  dtostrf(value, 4, 2, str);
+  sprintf(topic, "/v1.6/devices/%s", DEVICE_LABEL);
+  sprintf(payload, "{\"%s\": {\"value\": %s}}", label, str);
+  client.publish(topic, payload);
+  client.loop();
+}
 
-void loop() { 
-  if (!client.connected()) { 
-    reconnect(); 
-  } 
-  
-  sprintf(topic, "%s%s", "/v1.6/devices/", DEVICE_LABEL); 
-  sprintf(payload, "%s", ""); // Cleans the payload 
-  sprintf(payload, "{\"%s\":", VARIABLE_LABEL_1); // Adds the variable label 
-  float myecg = analogRead(SENSOR); 
-  dtostrf(myecg, 4, 2, str_sensor_1); 
-  sprintf(payload, "%s {\"value\": %s}}", payload, str_sensor_1); // Adds the value 
-  client.publish(topic, payload); 
-  client.loop(); 
-  
-  sprintf(topic, "%s%s", "/v1.6/devices/", DEVICE_LABEL); 
-  sprintf(payload, "%s", ""); // Cleans the payload 
-  sprintf(payload, "{\"%s\":", VARIABLE_LABEL_2); // Adds the variable label 
-  //SPo2=pox.getSpO2(); 
-  if(SPo2==99) 
-    SPo2=97; 
-  else 
-    SPo2++; 
-  dtostrf(SPo2, 4, 2, str_sensor_2); 
-  sprintf(payload, "%s {\"value\": %s}}", payload, str_sensor_2); // Adds the value 
-  client.publish(topic, payload); 
-  client.loop(); 
-  
-  sprintf(topic, "%s%s", "/v1.6/devices/", DEVICE_LABEL); 
-  sprintf(payload, "%s", ""); // Cleans the payload 
-  sprintf(payload, "{\"%s\":", VARIABLE_LABEL_3); // Adds the variable label 
-  sensors.requestTemperatures(); 
-  temp=sensors.getTempCByIndex(0); 
-  tempf=(temp*1.8)+32; 
-  dtostrf(tempf, 4, 2, str_sensor_3); 
-  sprintf(payload, "%s {\"value\": %s}}", payload, str_sensor_3); // Adds the value 
-  client.publish(topic, payload); 
-  client.loop(); 
-  
-  sprintf(topic, "%s%s", "/v1.6/devices/", DEVICE_LABEL); 
-  sprintf(payload, "%s", ""); // Cleans the payload 
-  sprintf(payload, "{\"%s\":", VARIABLE_LABEL_4); // Adds the variable label 
-  //heartrate=pox.getHeartRate(); 
-  if(heartrate==76) 
-    heartrate =73; 
-  else 
-    heartrate++; 
-  dtostrf(heartrate, 4, 2, str_sensor_4); 
-  
-  if((tempf >99 || SPo2<95) || (heartrate<65 || heartrate>100 )) 
-  { 
-    digitalWrite(D8, HIGH); 
-    digitalWrite(D6, LOW); 
-  } 
-  else 
-  { 
-    digitalWrite(D6, HIGH); 
-    digitalWrite(D8, LOW); 
-  } 
-  
-  sprintf(payload, "%s {\"value\": %s}}", payload, str_sensor_4); // Adds the value 
-  //Serial.println("Publishing data to Ubidots Cloud"); 
-  client.publish(topic, payload); 
-  client.loop(); 
-  delay(10); 
+void setup() {
+  pinMode(D6, OUTPUT);
+  pinMode(D7, OUTPUT);
+  pinMode(D8, OUTPUT);
+  pinMode(SENSOR, INPUT);
+  Serial.begin(115200);
+  sensors.begin();
+  sensors.setResolution(9);
+  WiFi.begin(WIFISSID, PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+  }
+  digitalWrite(D7, HIGH);
+  Serial.println(WiFi.localIP());
+  client.setServer(mqttBroker, 1883);
+  if (!pox.begin()) {
+    Serial.println("MAX30100 not found");
+  }
+  pox.setOnBeatDetectedCallback(onBeatDetected);
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  pox.update();
+
+  if (millis() - tsLastReport > REPORTING_PERIOD_MS) {
+    tsLastReport = millis();
+
+    float ecg = analogRead(SENSOR);
+    float heartRate = pox.getHeartRate();
+    float spo2 = pox.getSpO2();
+    sensors.requestTemperatures();
+    float tempC = sensors.getTempCByIndex(0);
+    float tempF = (tempC * 1.8) + 32;
+
+    publishValue("myecg", ecg);
+    publishValue("temperature", tempF);
+
+    bool fingerOn = (heartRate > 0 && spo2 > 0);
+    if (fingerOn) {
+      publishValue("heartrate", heartRate);
+      publishValue("SPo2", spo2);
+    }
+
+    bool abnormal = (tempF > 99) ||
+                    (fingerOn && (spo2 < 95 || heartRate < 65 || heartRate > 100));
+    digitalWrite(D8, abnormal ? HIGH : LOW);
+    digitalWrite(D6, abnormal ? LOW : HIGH);
+  }
 }
